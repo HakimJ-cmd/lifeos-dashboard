@@ -1,0 +1,206 @@
+// ============================================================================
+// LifeOS Dashboard — Database Schema
+// ----------------------------------------------------------------------------
+// Dirancang relasional agar tetap mudah dipahami: setiap tabel punya satu
+// tanggung jawab yang jelas, dan semua relasi dinamai eksplisit.
+//
+// Database: PostgreSQL (Neon). "url" pakai connection string ber-PgBouncer
+// (pooled) untuk query sehari-hari — wajib di lingkungan serverless (Vercel)
+// karena tiap function invocation bisa buka koneksi baru. "directUrl" pakai
+// connection string TANPA pooler, khusus dipakai `prisma migrate` (migrasi
+// butuh koneksi langsung, tidak bisa lewat PgBouncer transaction-mode).
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// USER — satu-satunya pemilik dashboard (single-tenant, sesuai PRD MVP).
+// Skema tetap membawa user_id di semua tabel supaya siap dinaikkan ke
+// multi-user pada fase lanjutan tanpa migrasi struktural besar.
+// ---------------------------------------------------------------------------
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  passwordHash  String // bcrypt, never store plaintext
+  budgetLimit   Float    @default(0) // ambang batas pengeluaran bulanan (FIN-2)
+  avatarUrl     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  projects      Project[]
+  tasks         Task[]
+  transactions  Transaction[]
+  budgetCategories BudgetCategory[]
+  productivityLogs ProductivityLog[]
+  sessions      Session[]
+  clients       Client[]
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// CLIENT — akun login terbatas milik owner untuk klien eksternal. Client
+// HANYA bisa login & melihat progress project yang di-assign ke dirinya
+// (read-only) — tidak bisa lihat/ubah apa pun yang lain. Dibedakan dari
+// User lewat klaim "role" di JWT (lihat lib/session.ts), bukan lewat tabel
+// yang sama, supaya tidak ada cara client "naik" jadi owner lewat data.
+model Client {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  email        String    @unique
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  projects     Project[]
+
+  @@index([userId])
+  @@map("clients")
+}
+
+// Sesi login aktif — memungkinkan revoke/"logout semua perangkat" (AUTH-2).
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique // hash dari refresh token, bukan token mentah
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ---------------------------------------------------------------------------
+// PROJECTS
+// ---------------------------------------------------------------------------
+model Project {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  status      String        @default("ACTIVE") // ACTIVE | ON_HOLD | COMPLETED | ARCHIVED — divalidasi via Zod (projectSchema), bukan enum, karena SQLite (dev) tidak mendukung enum di Prisma
+  startDate   DateTime?
+  targetDate  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Integrasi GitHub: repo di-link manual lewat owner+repo, lalu progres
+  // diperbarui otomatis oleh webhook GitHub (lihat /api/webhooks/github).
+  githubOwner        String?
+  githubRepo         String?
+  githubCommitCount  Int       @default(0)
+  githubIssuesTotal  Int       @default(0)
+  githubIssuesClosed Int       @default(0)
+  githubLastSyncAt   DateTime?
+
+  // Project ini milik client mana (opsional). Kalau di-hapus, project TIDAK
+  // ikut terhapus — cukup dilepas dari client itu (onDelete: SetNull).
+  clientId    String?
+  client      Client?       @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  tasks       Task[]
+
+  @@index([userId])
+  @@index([githubOwner, githubRepo])
+  @@index([clientId])
+  @@map("projects")
+}
+
+// ---------------------------------------------------------------------------
+// TASKS
+// ---------------------------------------------------------------------------
+model Task {
+  id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  title       String
+  description String?
+  status      String     @default("PENDING") // PENDING | IN_PROGRESS | COMPLETED | OVERDUE — divalidasi via Zod (taskSchema)
+  priority    String     @default("MEDIUM") // LOW | MEDIUM | HIGH — divalidasi via Zod (taskSchema), dipakai untuk bobot skor produktivitas
+  deadline    DateTime?
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([status])
+  @@map("tasks")
+}
+
+// ---------------------------------------------------------------------------
+// FINANCE
+// ---------------------------------------------------------------------------
+// Kategori dipisah dari transaksi agar limit anggaran (FIN-2/FIN-3) bisa
+// diatur per-kategori (mis. "Makan" 1jt/bln) atau dibiarkan null untuk
+// memakai budgetLimit umum di User.
+model BudgetCategory {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  monthlyLimit Float?
+  createdAt   DateTime @default(now())
+
+  transactions Transaction[]
+
+  @@unique([userId, name])
+  @@map("budget_categories")
+}
+
+model Transaction {
+  id              String            @id @default(cuid())
+  userId          String
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId      String?
+  category        BudgetCategory?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  type            String            // INCOME | EXPENSE — divalidasi via Zod (transactionSchema)
+  amount          Float
+  transactionDate DateTime
+  notes           String?
+  createdAt       DateTime          @default(now())
+
+  @@index([userId])
+  @@index([transactionDate])
+  @@map("financial_transactions")
+}
+
+// ---------------------------------------------------------------------------
+// PRODUCTIVITY ENGINE
+// ---------------------------------------------------------------------------
+// Snapshot harian, dihitung/di-upsert oleh /api/productivity setiap kali
+// dashboard dibuka atau task diperbarui. Menyimpan histori (bukan cuma
+// live-compute) supaya grafik mingguan tetap akurat meski task lama diedit.
+model ProductivityLog {
+  id                  String   @id @default(cuid())
+  userId              String
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logDate             DateTime // tanggal (tanpa jam), 1 baris per hari per user
+  completedTasksCount Int      @default(0)
+  overdueTasksCount   Int      @default(0)
+  pendingTasksCount   Int      @default(0)
+  productivityScore   Float    @default(0) // 0-100
+  lazyScore           Float    @default(0) // 0-100, komplemen dari productivityScore
+  createdAt           DateTime @default(now())
+
+  @@unique([userId, logDate])
+  @@index([userId])
+  @@map("productivity_logs")
+}

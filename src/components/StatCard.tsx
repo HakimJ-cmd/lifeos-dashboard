@@ -14,7 +14,7 @@ export function StatCard({
   return (
     <div className="bg-surface-container-lowest rounded-card shadow-card p-5 min-w-0">
       <p className="text-xs font-medium text-on-surface-variant uppercase tracking-wide truncate">{label}</p>
-      <p className={`font-display text-lg sm:text-2xl font-bold mt-2 break-words ${toneClass}`}>{value}</p>
+      <p className={`font-display text-lg sm:text-xl font-bold mt-2 truncate ${toneClass}`} title={value}>{value}</p>
       {hint && <p className="text-xs text-on-surface-variant mt-1 truncate">{hint}</p>}
     </div>
   );

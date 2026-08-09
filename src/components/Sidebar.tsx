@@ -34,7 +34,7 @@ export function Sidebar({ userName }: { userName: string }) {
   return (
     <aside className="hidden md:flex md:flex-col md:w-64 md:shrink-0 bg-dark-slate text-inverse-on-surface rounded-card m-4 mr-0 p-5">
       <div className="flex items-center gap-2.5 mb-8 px-1">
-        <div className="w-9 h-9 rounded-input bg-primary flex items-center justify-center font-display font-bold">L</div>
+        <div className="w-9 h-9 rounded-input bg-secondary flex items-center justify-center font-display font-bold">L</div>
         <span className="font-display font-bold text-lg">LifeOS</span>
       </div>
 
@@ -106,9 +106,9 @@ export function MobileTopBar({ userName }: { userName: string }) {
   return (
     <div className="md:hidden sticky top-0 z-40 flex items-center justify-between bg-surface px-4 py-3">
       <div className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-input bg-dark-slate text-inverse-on-surface flex items-center justify-center font-display font-bold text-sm">
-          L
-        </div>
+      <div className="w-8 h-8 rounded-input bg-secondary text-inverse-on-surface flex items-center justify-center font-display font-bold text-sm">
+        L
+      </div>
         <span className="font-display font-bold text-base">LifeOS</span>
       </div>
 

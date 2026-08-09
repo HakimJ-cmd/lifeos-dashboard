@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 const NAV_ITEMS = [
@@ -12,6 +13,9 @@ const NAV_ITEMS = [
   { href: "/productivity", label: "Insights", icon: "insights" },
   { href: "/settings", label: "Pengaturan", icon: "settings" },
 ];
+
+// Menu yang tidak muat di bottom nav mobile (cuma 5 slot)
+const MORE_ITEMS = NAV_ITEMS.slice(5);
 
 function Icon({ name }: { name: string }) {
   return <span className="material-symbols-outlined text-[20px]">{name}</span>;
@@ -86,5 +90,64 @@ export function MobileNav() {
         );
       })}
     </nav>
+  );
+}
+
+export function MobileTopBar({ userName }: { userName: string }) {
+  const [open, setOpen] = useState(false);
+  const router = useRouter();
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
+  }
+
+  return (
+    <div className="md:hidden sticky top-0 z-40 flex items-center justify-between bg-surface px-4 py-3">
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-input bg-dark-slate text-inverse-on-surface flex items-center justify-center font-display font-bold text-sm">
+          L
+        </div>
+        <span className="font-display font-bold text-base">LifeOS</span>
+      </div>
+
+      <div className="relative">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-label="Menu akun"
+          className="w-9 h-9 rounded-full bg-dark-slate text-inverse-on-surface flex items-center justify-center"
+        >
+          <Icon name={open ? "close" : "menu"} />
+        </button>
+
+        {open && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <div className="absolute right-0 mt-2 w-56 bg-dark-slate text-inverse-on-surface rounded-card shadow-elevated p-2 z-50">
+              <div className="px-3 py-2 text-xs text-white/50 truncate">{userName}</div>
+              {MORE_ITEMS.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-pill text-sm font-medium text-white/70 hover:bg-white/5 hover:text-white transition"
+                >
+                  <Icon name={item.icon} />
+                  {item.label}
+                </Link>
+              ))}
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-pill text-sm font-medium text-white/70 hover:bg-white/5 hover:text-white transition"
+              >
+                <Icon name="logout" />
+                Keluar
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
